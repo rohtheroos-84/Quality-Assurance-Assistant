@@ -1,0 +1,24 @@
+:root {
+  /* Base layers */
+  --z-background: 0;
+  --z-particles: 5;
+  
+  /* Content layers */
+  --z-main-content: 10;
+  --z-chat-content: 15;
+  --z-sidebar-content: 20;
+  
+  /* UI elements */
+  --z-input: 25;
+  --z-header: 30;
+  --z-sidebar: 35;
+  
+  /* Overlay layers */
+  --z-overlay: 40;
+  --z-modal: 50;
+  --z-tooltip: 60;
+  --z-popover: 70;
+  
+  /* Top-level elements */
+  --z-dialog: 100;
+}

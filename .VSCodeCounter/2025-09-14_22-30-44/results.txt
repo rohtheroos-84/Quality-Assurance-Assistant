@@ -1,0 +1,57 @@
+Date : 2025-09-14 22:30:44
+Directory : c:\Users\rohit\Downloads\quality\qa-frontend\src
+Total : 25 files,  2170 codes, 77 comments, 212 blanks, all 2459 lines
+
+Languages
++----------------+------------+------------+------------+------------+------------+
+| language       | files      | code       | comment    | blank      | total      |
++----------------+------------+------------+------------+------------+------------+
+| TypeScript JSX |         17 |      1,823 |         57 |        142 |      2,022 |
+| PostCSS        |          3 |        270 |         13 |         56 |        339 |
+| TypeScript     |          4 |         76 |          7 |         14 |         97 |
+| XML            |          1 |          1 |          0 |          0 |          1 |
++----------------+------------+------------+------------+------------+------------+
+
+Directories
++------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                               | files      | code       | comment    | blank      | total      |
++------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                                  |         25 |      2,170 |         77 |        212 |      2,459 |
+| . (Files)                                                                          |          9 |        285 |         18 |         56 |        359 |
+| components                                                                         |         13 |      1,630 |         49 |        119 |      1,798 |
+| context                                                                            |          1 |        121 |          2 |         12 |        135 |
+| services                                                                           |          1 |         62 |          2 |          9 |         73 |
+| styles                                                                             |          1 |         72 |          6 |         16 |         94 |
++------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++------------------------------------------------------------------------------------+----------------+------------+------------+------------+------------+
+| filename                                                                           | language       | code       | comment    | blank      | total      |
++------------------------------------------------------------------------------------+----------------+------------+------------+------------+------------+
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\App.css                           | PostCSS        |         33 |          0 |          6 |         39 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\App.test.tsx                      | TypeScript JSX |          8 |          0 |          2 |         10 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\App.tsx                           | TypeScript JSX |         47 |          3 |          6 |         56 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\components\AnimatedBackground.tsx | TypeScript JSX |         50 |          2 |          4 |         56 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\components\ChartDisplay.tsx       | TypeScript JSX |        179 |          6 |         11 |        196 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\components\ChatInput.tsx          | TypeScript JSX |        113 |          1 |          8 |        122 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\components\ChatInterface.tsx      | TypeScript JSX |        212 |          4 |         17 |        233 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\components\FileUpload.tsx         | TypeScript JSX |        255 |          7 |         21 |        283 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\components\Header.tsx             | TypeScript JSX |         81 |          7 |          7 |         95 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\components\MessageBubble.tsx      | TypeScript JSX |        117 |          6 |          8 |        131 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\components\ParallaxContainer.tsx  | TypeScript JSX |         40 |          1 |          6 |         47 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\components\PersonaAvatar.tsx      | TypeScript JSX |        112 |          2 |          7 |        121 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\components\PersonaSelector.tsx    | TypeScript JSX |        148 |          1 |          8 |        157 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\components\SettingsModal.tsx      | TypeScript JSX |         85 |          2 |          7 |         94 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\components\Sidebar.tsx            | TypeScript JSX |        119 |          8 |          8 |        135 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\components\ToolGenerator.tsx      | TypeScript JSX |        119 |          2 |          7 |        128 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\context\ThemeContext.tsx          | TypeScript JSX |        121 |          2 |         12 |        135 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\index.css                         | PostCSS        |        165 |          7 |         34 |        206 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\index.tsx                         | TypeScript JSX |         17 |          3 |          3 |         23 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\logo.svg                          | XML            |          1 |          0 |          0 |          1 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\react-app-env.d.ts                | TypeScript     |          0 |          1 |          1 |          2 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\reportWebVitals.ts                | TypeScript     |         13 |          0 |          3 |         16 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\services\api.ts                   | TypeScript     |         62 |          2 |          9 |         73 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\setupTests.ts                     | TypeScript     |          1 |          4 |          1 |          6 |
+| c:\Users\rohit\Downloads\quality\qa-frontend\src\styles\theme.css                  | PostCSS        |         72 |          6 |         16 |         94 |
+| Total                                                                              |                |      2,170 |         77 |        212 |      2,459 |
++------------------------------------------------------------------------------------+----------------+------------+------------+------------+------------+

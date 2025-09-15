@@ -1,0 +1,33 @@
+"filename", "language", "TypeScript JSX", "TypeScript", "PostCSS", "XML", "Python", "comment", "blank", "total"
+"c:\Users\rohit\Downloads\quality\chart_generators\__init__.py", "Python", 0, 0, 0, 0, -12, -4, -2, -18
+"c:\Users\rohit\Downloads\quality\chart_generators\capability_generator.py", "Python", 0, 0, 0, 0, -313, -39, -66, -418
+"c:\Users\rohit\Downloads\quality\chart_generators\control_chart_generator.py", "Python", 0, 0, 0, 0, -221, -30, -44, -295
+"c:\Users\rohit\Downloads\quality\chart_generators\fishbone_generator.py", "Python", 0, 0, 0, 0, -143, -27, -32, -202
+"c:\Users\rohit\Downloads\quality\chart_generators\histogram_generator.py", "Python", 0, 0, 0, 0, -160, -24, -37, -221
+"c:\Users\rohit\Downloads\quality\chart_generators\pareto_generator.py", "Python", 0, 0, 0, 0, -117, -20, -29, -166
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\App.css", "PostCSS", 0, 0, 33, 0, 0, 0, 6, 39
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\App.test.tsx", "TypeScript JSX", 8, 0, 0, 0, 0, 0, 2, 10
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\App.tsx", "TypeScript JSX", 47, 0, 0, 0, 0, 3, 6, 56
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\components\AnimatedBackground.tsx", "TypeScript JSX", 50, 0, 0, 0, 0, 2, 4, 56
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\components\ChartDisplay.tsx", "TypeScript JSX", 179, 0, 0, 0, 0, 6, 11, 196
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\components\ChatInput.tsx", "TypeScript JSX", 113, 0, 0, 0, 0, 1, 8, 122
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\components\ChatInterface.tsx", "TypeScript JSX", 212, 0, 0, 0, 0, 4, 17, 233
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\components\FileUpload.tsx", "TypeScript JSX", 255, 0, 0, 0, 0, 7, 21, 283
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\components\Header.tsx", "TypeScript JSX", 81, 0, 0, 0, 0, 7, 7, 95
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\components\MessageBubble.tsx", "TypeScript JSX", 117, 0, 0, 0, 0, 6, 8, 131
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\components\ParallaxContainer.tsx", "TypeScript JSX", 40, 0, 0, 0, 0, 1, 6, 47
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\components\PersonaAvatar.tsx", "TypeScript JSX", 112, 0, 0, 0, 0, 2, 7, 121
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\components\PersonaSelector.tsx", "TypeScript JSX", 148, 0, 0, 0, 0, 1, 8, 157
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\components\SettingsModal.tsx", "TypeScript JSX", 85, 0, 0, 0, 0, 2, 7, 94
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\components\Sidebar.tsx", "TypeScript JSX", 119, 0, 0, 0, 0, 8, 8, 135
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\components\ToolGenerator.tsx", "TypeScript JSX", 119, 0, 0, 0, 0, 2, 7, 128
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\context\ThemeContext.tsx", "TypeScript JSX", 121, 0, 0, 0, 0, 2, 12, 135
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\index.css", "PostCSS", 0, 0, 165, 0, 0, 7, 34, 206
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\index.tsx", "TypeScript JSX", 17, 0, 0, 0, 0, 3, 3, 23
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\logo.svg", "XML", 0, 0, 0, 1, 0, 0, 0, 1
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\react-app-env.d.ts", "TypeScript", 0, 0, 0, 0, 0, 1, 1, 2
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\reportWebVitals.ts", "TypeScript", 0, 13, 0, 0, 0, 0, 3, 16
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\services\api.ts", "TypeScript", 0, 62, 0, 0, 0, 2, 9, 73
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\setupTests.ts", "TypeScript", 0, 1, 0, 0, 0, 4, 1, 6
+"c:\Users\rohit\Downloads\quality\qa-frontend\src\styles\theme.css", "PostCSS", 0, 0, 72, 0, 0, 6, 16, 94
+"Total", "-", 1823, 76, 270, 1, -966, -67, 2, 1139
