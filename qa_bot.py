@@ -87,11 +87,46 @@ def apply_persona_to_prompt(base_prompt: str, persona: str) -> str:
     persona_instruction = get_persona_prompt(persona)
     return f"{persona_instruction}\n\n{base_prompt}"
 
-# Initialize global resources
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-vector_store = None
-model = genai.GenerativeModel("gemini-2.5-flash-lite")
-executor = ThreadPoolExecutor(max_workers=3)  # For parallel operations
+import os
+from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
+
+_embeddings = None
+_vector_store = None
+_model = None
+_executor: Optional[ThreadPoolExecutor] = None
+
+def get_executor():
+    global _executor
+    if _executor is None:
+        _executor = ThreadPoolExecutor(max_workers=3)
+    return _executor
+
+def get_embeddings():
+    global _embeddings
+    if _embeddings is None:
+        from langchain_huggingface import HuggingFaceEmbeddings
+        _embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    return _embeddings
+
+def get_vector_store():
+    global _vector_store
+    if _vector_store is None:
+        from langchain_community.vectorstores import FAISS
+        path = os.getenv("VECTOR_INDEX_PATH", "vector_index")
+        _vector_store = FAISS.load_local(path, get_embeddings(), allow_dangerous_deserialization=True)
+    return _vector_store
+
+def get_genai_model():
+    global _model
+    if _model is None:
+        import google.generativeai as genai
+        key = os.getenv("GEMINI_API_KEY")
+        if key:
+            genai.configure(api_key=key)
+        _model = genai.GenerativeModel("gemini-2.5-flash-lite")
+    return _model
+
 
 
 def initialize_vector_store():
@@ -100,7 +135,7 @@ def initialize_vector_store():
         path = os.getenv("VECTOR_INDEX_PATH", "vector_index")  
         vector_store = FAISS.load_local(
             path,
-            embeddings,
+            get_embeddings(),
             allow_dangerous_deserialization=True
         )
 
@@ -118,7 +153,7 @@ async def ask_bot(query, chat_history=None, custom_index=None, image=None, mode=
     # Vision-only path: if an image is provided and mode is image, analyze image directly
     if mode == "image" and image is not None:
         loop = asyncio.get_event_loop()
-        tool_future = loop.run_in_executor(executor, get_tool_recommendation, query)
+        tool_future = loop.run_in_executor(get_executor(), get_tool_recommendation, query)
 
         prompt_text = (
             "You are a quality assurance assistant. Analyze the provided image in the context of the user's question. "
@@ -129,7 +164,7 @@ async def ask_bot(query, chat_history=None, custom_index=None, image=None, mode=
         )
         prompt_text = apply_persona_to_prompt(prompt_text, persona)
         # Gemini expects inline image data as bytes with mime type
-        response = model.generate_content([
+        response = get_genai_model().generate_content([
             {"text": prompt_text + "\n\nQuestion: " + query},
             {"inline_data": {"mime_type": image.get("mime", "image/jpeg"), "data": image.get("bytes", b"")}},
         ])
@@ -145,7 +180,7 @@ async def ask_bot(query, chat_history=None, custom_index=None, image=None, mode=
 
     # Run tool recommendation in parallel
     loop = asyncio.get_event_loop()
-    tool_future = loop.run_in_executor(executor, get_tool_recommendation, query)
+    tool_future = loop.run_in_executor(get_executor(), get_tool_recommendation, query)
 
     # Get relevant documents from vector DB
     relevant_docs = db.similarity_search(query, k=3)
@@ -221,7 +256,7 @@ Your response should:
     tool_recommendation = await tool_future
 
     # Generate answer from Gemini
-    response = model.generate_content(prompt)
+    response = get_genai_model().generate_content(prompt)
     answer = response.text.strip() + tool_recommendation
 
     # Add citation list only if citations are present in the answer
@@ -778,7 +813,7 @@ Keep the explanation clear and professional, suitable for a quality engineer or 
 
     try:
         # Use Gemini to generate explanation
-        response = model.generate_content(prompt)
+        response = get_genai_model().generate_content(prompt)
         explanation = response.text.strip()
         
         # Add a header with the tool type
@@ -965,7 +1000,7 @@ Do not provide any explanation, just respond with either "ESCALATE", "IDK" or "C
         confidence_check_prompt = apply_persona_to_prompt(confidence_check_prompt, persona)
         
         # Get LLM's self-assessment
-        confidence_response = model.generate_content(confidence_check_prompt)
+        confidence_response = get_genai_model().generate_content(confidence_check_prompt)
         confidence_decision = confidence_response.text.strip().upper()
         
         # Check if escalation is needed
