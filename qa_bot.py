@@ -16,6 +16,46 @@ from ai_data_parser import AIDataParser
 from ui_components import ToolDisplayComponent, DataInputForms, ToolCustomizationPanel, ExportManager
 from email_config import EmailEscalation
 
+import numpy as np
+import google.generativeai as genai
+
+key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+if not key:
+    raise RuntimeError("GEMINI_API_KEY or GOOGLE_API_KEY not set in environment")
+genai.configure(api_key=key)
+model = genai.GenerativeModel("gemini-2.5-flash-lite")
+
+_EMBEDDINGS = None
+_EMBED_CACHE = {}
+
+class GeminiEmbeddings:
+    def __init__(self, model: str = "models/text-embedding-004"):
+        self.model = model
+
+    def _embed(self, text: str) -> np.ndarray:
+        if text in _EMBED_CACHE:
+            return _EMBED_CACHE[text]
+        import time
+        t0 = time.time()
+        res = genai.embed_content(model=self.model, content=text)
+        print(f">>> Embedded 1 text in {time.time()-t0:.2f}s")
+        emb = np.array(res["embedding"], dtype=np.float32)
+        _EMBED_CACHE[text] = emb
+        return emb
+
+    def embed_documents(self, texts):
+        print(f">>> embed_documents called with {len(texts)} docs")
+        return [self._embed(t).tolist() for t in texts]
+
+    def embed_query(self, text):
+        return self._embed(text).tolist()
+
+def get_embeddings():
+    global _EMBEDDINGS
+    if _EMBEDDINGS is None:
+        _EMBEDDINGS = GeminiEmbeddings()
+    return _EMBEDDINGS
+
 # Persona system
 def get_persona_prompt(persona: str) -> str:
     """Get persona-specific system prompt for Gemini"""
@@ -96,31 +136,41 @@ def get_executor():
         _executor = ThreadPoolExecutor(max_workers=3)
     return _executor
 
-import numpy as np
+from qa_bot import get_embeddings
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-
-_embeddings = None
-
-def get_embeddings():
-    global _embeddings
-    if _embeddings is None:
-        _embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/text-embedding-004",
-            google_api_key=os.getenv("GEMINI_API_KEY")
-        )
-    return _embeddings
-
+_vector_store = None
 
 def get_vector_store():
     global _vector_store
     if _vector_store is None:
-        from langchain_community.vectorstores import FAISS
-        path = os.getenv("VECTOR_INDEX_PATH", "vector_index")
-        _vector_store = FAISS.load_local(path, get_embeddings(), allow_dangerous_deserialization=True)
+        emb_obj = get_embeddings()
+        try:
+            _vector_store = FAISS.load_local(
+                "vector_index",
+                embedding_function=emb_obj.embed_query,
+                allow_dangerous_deserialization=True
+            )
+        except Exception:
+            try:
+                _vector_store = FAISS.load_local(
+                    "vector_index",
+                    embeddings=emb_obj,
+                    allow_dangerous_deserialization=True
+                )
+            except Exception:
+                _vector_store = FAISS.load_local(
+                    "vector_index",
+                    embedding=emb_obj,
+                    allow_dangerous_deserialization=True
+                )
+
+        # Safety: ensure it's always callable
+        if not callable(getattr(_vector_store, "embedding_function", None)):
+            if getattr(emb_obj, "embed_query", None):
+                _vector_store.embedding_function = emb_obj.embed_query
+
     return _vector_store
+
 
 def get_genai_model():
     global _model
@@ -169,7 +219,7 @@ async def ask_bot(query, chat_history=None, custom_index=None, image=None, mode=
         )
         prompt_text = apply_persona_to_prompt(prompt_text, persona)
         # Gemini expects inline image data as bytes with mime type
-        response = get_genai_model().generate_content([
+        response = model.generate_content([
             {"text": prompt_text + "\n\nQuestion: " + query},
             {"inline_data": {"mime_type": image.get("mime", "image/jpeg"), "data": image.get("bytes", b"")}},
         ])
@@ -184,8 +234,14 @@ async def ask_bot(query, chat_history=None, custom_index=None, image=None, mode=
     loop = asyncio.get_event_loop()
     tool_future = loop.run_in_executor(get_executor(), get_tool_recommendation, query)
 
-    # Get relevant documents from vector DB
+    import time
+    t0 = time.time()
+    print(">>> running similarity_search for:", query)
+
     relevant_docs = db.similarity_search(query, k=3)
+
+    print(">>> similarity_search took", time.time() - t0, "seconds")
+
 
     # Prepare context with source citations
     context_with_sources = []
@@ -258,7 +314,7 @@ Your response should:
     tool_recommendation = await tool_future
 
     # Generate answer from Gemini
-    response = get_genai_model().generate_content(prompt)
+    response = model.generate_content(prompt)
     answer = response.text.strip() + tool_recommendation
 
     # Add citation list only if citations are present in the answer
@@ -676,25 +732,22 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
     return None, "No tool generation requested"
     
 def get_tool_generation_suggestion(query: str) -> str:
-    """Get suggestion for tool generation based on query"""
-    
-    tool_match = check_for_tool_generation(query)
-    
-    if not tool_match["match"]:
-        return ""
-    
-    if tool_match["should_generate"]:
-        return f"\n\n🎯 **I can generate a {tool_match['tool']} for you!**\nI found sufficient data in your message to create this tool automatically.\n\nType 'Generate {tool_match['tool']}' to create it, or ask me to help you with the data if needed."
-    
-    elif tool_match["can_generate"] and not tool_match["data_sufficient"]:
-        missing_data = tool_match["required_data"].replace("_", " ").title()
-        min_points = tool_match["min_data_points"]
-        return f"\n\n�� **I can generate a {tool_match['tool']} for you!**\nHowever, I need more {missing_data} to create it. I need at least {min_points} data points.\n\nPlease provide more specific data, or ask me to help you structure the information."
-    
-    else:
-        # Fall back to regular recommendation
-        confidence = tool_match.get("confidence", 0) * 100
-        return f"\n\nRecommended Quality Tool: **{tool_match['tool']}** (Confidence: {confidence:.1f}%)\n{tool_match['when_to_use']}"
+    """Fast keyword-based tool generation suggestion (no Gemini calls)."""
+    q = query.lower()
+
+    if "histogram" in q:
+        return "\n\n🎯 *I can generate a Histogram for you!* Type 'Generate Histogram' to create it."
+    if "pareto" in q:
+        return "\n\n🎯 *I can generate a Pareto Chart for you!* Type 'Generate Pareto' to create it."
+    if "control chart" in q:
+        return "\n\n🎯 *I can generate a Control Chart for you!* Type 'Generate Control Chart' to create it."
+    if "capability" in q:
+        return "\n\n🎯 *I can generate a Capability Chart for you!* Type 'Generate Capability Chart' to create it."
+    if "fishbone" in q:
+        return "\n\n🎯 *I can generate a Fishbone Diagram for you!* Type 'Generate Fishbone' to create it."
+
+    return ""
+
 
 def get_chart_explanation(tool_type: str, data_summary: dict = None, chart_metadata: dict = None) -> str:
     """Generate explanation for the generated chart"""
@@ -815,7 +868,7 @@ Keep the explanation clear and professional, suitable for a quality engineer or 
 
     try:
         # Use Gemini to generate explanation
-        response = get_genai_model().generate_content(prompt)
+        response = model.generate_content(prompt)
         explanation = response.text.strip()
         
         # Add a header with the tool type
@@ -840,7 +893,11 @@ async def ask_bot_with_tool_generation(query, chat_history=None, custom_index=No
     )
     
     if is_tool_request:
+        import time
+        t0 = time.time()
         tool_result, error = await generate_qc_tool(query, chat_history, custom_index, image, mode)
+        t1 = time.time()
+        print(f">>> generate_qc_tool total: {t1 - t0:.3f}s (includes all internal steps)")
         
         if tool_result and tool_result.success:
             # Generate chart explanation
@@ -859,105 +916,45 @@ async def ask_bot_with_tool_generation(query, chat_history=None, custom_index=No
             }
     
     # Fall back to regular chatbot response
+    import time
+    t0 = time.time()
     regular_response = await ask_bot(query, chat_history, custom_index, image, mode, persona, csv_context=csv_context)
+    t1 = time.time()
+    print(f">>> ask_bot total: {t1 - t0:.3f}s")
     
     # Add tool generation suggestion
+    t0 = time.time()
     suggestion = get_tool_generation_suggestion(query)
+    t1 = time.time()
+    print(f">>> get_tool_generation_suggestion total: {t1 - t0:.3f}s")
     
     return {
         "type": "chat_response",
         "message": regular_response + suggestion
     }
 
-# async def ask_bot_with_escalation(query, chat_history=None, custom_index=None, image=None, mode=None, recipient_email=None, persona="Novice Guide", csv_context=None):
-#     """Enhanced ask_bot function with LLM-determined escalation"""
-    
-#     # Get the original response
-#     response = await ask_bot_with_tool_generation(query, chat_history, custom_index, image, mode, persona, csv_context=csv_context)
-    
-#     # Don't escalate if tool generation was successful
-#     if response["type"] == "tool_generation":
-#         return response
-    
-#     # Extract response text for escalation check
-#     if response["type"] == "chat_response":
-#         response_text = response["message"]
-#     elif response["type"] == "error":
-#         response_text = response["message"]
-#     else:
-#         response_text = response.get("message", "")
-    
-#     # Ask the LLM to assess its own confidence and determine if escalation is needed
-#     confidence_check_prompt = f"""
-# Based on your previous response to the user's question, please assess your confidence level and determine if human escalation is needed.
-
-# User's Question: {query}
-# Your Response: {response_text}
-
-# Please respond with ONLY one of these options:
-# 1. "ESCALATE" - if the nature of the task is critical and you are absolutely clueless
-# 2. "CONFIDENT" - otherwise if you are confident in your response and no escalation is needed
-# 3. "IDK" - if you are unsure, lack sufficient information, or need more context, but escalation is NOT critical
-
-# Do not provide any explanation, just respond with either "ESCALATE", "IDK" or "CONFIDENT".
-# """
-#     confidence_check_prompt = apply_persona_to_prompt(confidence_check_prompt, persona)
-#     # Get LLM's self-assessment
-#     confidence_response = model.generate_content(confidence_check_prompt)
-#     confidence_decision = confidence_response.text.strip().upper()
-    
-#     # Check if escalation is needed
-#     if "ESCALATE" in confidence_decision:
-#         # Send escalation email
-#         email_escalation = EmailEscalation()
-#         escalation_sent = email_escalation.send_escalation_email(
-#             query, response_text, "LLM determined uncertainty", recipient_email
-#         )
-        
-#         # Add escalation notice to response
-#         email_used = recipient_email or "default manager"
-#         escalation_notice = f"""
-        
-# ⚠️ **Human Escalation Required**
-
-# I've determined that your query requires human expertise beyond my capabilities. I've escalated your question to our quality experts who will review it and get back to you.
-
-# **Escalation Status:** {'✅ Sent' if escalation_sent else '❌ Failed to send'}
-# **Escalated to:** {email_used}
-#         """
-        
-#         if response["type"] == "chat_response":
-#             response["message"] += escalation_notice
-#         elif response["type"] == "tool_generation":
-#             response["message"] += escalation_notice
-#         elif response["type"] == "error":
-#             response["message"] += escalation_notice
-        
-#         # Add escalation info to response
-#         response["escalated"] = True
-#         response["escalation_sent"] = escalation_sent
-    
-#     return response
-
-async def ask_bot_with_escalation(query, chat_history=None, custom_index=None, image=None, mode=None, recipient_email=None, persona="Novice Guide", csv_context=None):
-    """Enhanced ask_bot function with LLM-determined escalation"""
-    
+async def ask_bot_with_escalation(query, chat_history=None, custom_index=None, image=None, mode=None,
+                                  recipient_email=None, persona="Novice Guide", csv_context=None):
+    """Enhanced ask_bot function with tool generation + optional escalation check (no email)."""
     try:
-        # Get the original response
-        response = await ask_bot_with_tool_generation(query, chat_history, custom_index, image, mode, persona, csv_context=csv_context)
-        
-        # Don't escalate if tool generation was successful
+        # Run through tool generation / chat logic
+        import time
+        t1 = time.time()
+        response = await ask_bot_with_tool_generation(
+            query, chat_history, custom_index, image, mode, persona, csv_context=csv_context
+        )
+        print(">>> tool/gen+chat took", time.time()-t1, "seconds")
+
+        # If tool generation succeeded, return it directly
         if response["type"] == "tool_generation":
-            # Convert ToolGenerationResult to dictionary for JSON serialization
             tool_result = response["tool_result"]
-            
-            # Convert chart_data bytes to base64 string
+
+            # Convert chart_data bytes to base64 for JSON safety
             chart_data_b64 = None
             if tool_result.chart_data:
                 import base64
-                chart_data_b64 = base64.b64encode(tool_result.chart_data).decode('utf-8')
-            
-            # Create serializable tool result
+                chart_data_b64 = base64.b64encode(tool_result.chart_data).decode("utf-8")
+
             serializable_tool_result = {
                 "success": tool_result.success,
                 "tool_type": tool_result.tool_type,
@@ -965,82 +962,59 @@ async def ask_bot_with_escalation(query, chat_history=None, custom_index=None, i
                 "chart_html": tool_result.chart_html,
                 "data_summary": tool_result.data_summary,
                 "chart_metadata": tool_result.chart_metadata,
-                "error_message": tool_result.error_message
+                "error_message": tool_result.error_message,
             }
-            
+
             return {
                 "type": "tool_generation",
                 "tool_result": serializable_tool_result,
                 "tool_type": tool_result.tool_type,
-                "message": response["message"]
+                "message": response["message"],
             }
-        
-        # Don't escalate if there was an error in tool generation
+
+        # If tool generation errored, just return error
         if response["type"] == "error":
             return response
-        
-        # Extract response text for escalation check
-        if response["type"] == "chat_response":
-            response_text = response["message"]
-        else:
-            response_text = response.get("message", "")
-        
-        # Ask the LLM to assess its own confidence and determine if escalation is needed
+
+        # If it's a chat response, optionally run confidence check
+        response_text = response.get("message", "")
+
         confidence_check_prompt = f"""
-Based on your previous response to the user's question, please assess your confidence level and determine if human escalation is needed.
+Based on your previous response to the user's question, please assess your confidence level.
 
 User's Question: {query}
 Your Response: {response_text}
 
 Please respond with ONLY one of these options:
-1. "ESCALATE" - if the nature of the task is critical and you are absolutely clueless
-2. "CONFIDENT" - otherwise if you are confident in your response and no escalation is needed
-3. "IDK" - if you are unsure, lack sufficient information, or need more context, but escalation is NOT critical
-
-Do not provide any explanation, just respond with either "ESCALATE", "IDK" or "CONFIDENT".
+- "ESCALATE"
+- "CONFIDENT"
+- "IDK"
 """
         confidence_check_prompt = apply_persona_to_prompt(confidence_check_prompt, persona)
-        
-        # Get LLM's self-assessment
-        confidence_response = get_genai_model().generate_content(confidence_check_prompt)
-        confidence_decision = confidence_response.text.strip().upper()
-        
-        # Check if escalation is needed
+
+        try:
+            t2 = time.time()
+            confidence_response = model.generate_content(confidence_check_prompt)
+            print(">>> escalation check took", time.time()-t2, "seconds")
+            confidence_decision = confidence_response.text.strip().upper()
+        except Exception as ce:
+            print(f"DEBUG: Confidence check skipped: {ce}")
+            confidence_decision = "CONFIDENT"
+
+        # If escalate flagged, just annotate the response (no email)
         if "ESCALATE" in confidence_decision:
-            # Send escalation email
-            email_escalation = EmailEscalation()
-            escalation_sent = email_escalation.send_escalation_email(
-                query, response_text, "LLM determined uncertainty", recipient_email
-            )
-            
-            # Add escalation notice to response
-            email_used = recipient_email or "default manager"
-            escalation_notice = f"""
-            
-⚠️ **Human Escalation Required**
-
-I've determined that your query requires human expertise beyond my capabilities. I've escalated your question to our quality experts who will review it and get back to you.
-
-**Escalation Status:** {'✅ Sent' if escalation_sent else '❌ Failed to send'}
-**Escalated to:** {email_used}
-            """
-            
-            if response["type"] == "chat_response":
-                response["message"] += escalation_notice
-            elif response["type"] == "tool_generation":
-                response["message"] += escalation_notice
-            elif response["type"] == "error":
-                response["message"] += escalation_notice
-            
-            # Add escalation info to response
+            response["message"] += "\n\n⚠️ Marked for human review (escalation skipped: no email system)."
             response["escalated"] = True
-            response["escalation_sent"] = escalation_sent
-        
+        else:
+            response["escalated"] = False
+
         return response
-        
+
     except Exception as e:
-        print(f"DEBUG: Error in ask_bot_with_escalation: {e}")
+        import traceback
+        print("DEBUG: Error in ask_bot_with_escalation:", repr(e))
+        traceback.print_exc()
         return {
             "type": "error",
-            "message": f"❌ Sorry, I encountered an error: {str(e)}"
+            "message": f"❌ Sorry, I encountered an error in escalation: {repr(e)}"
         }
