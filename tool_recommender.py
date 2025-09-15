@@ -5,16 +5,13 @@ import os
 # Configure Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-# Initialize embeddings model once
-embeddings_model = genai.embedder.EmbeddingModel("models/text-embedding-004")
-
 def get_embedding(text: str):
     """Return embedding vector from Gemini"""
-    result = embeddings_model.embed_content(
+    result = genai.embed_content(
         model="models/text-embedding-004",
         content=text
     )
-    return np.array(result.embedding, dtype=np.float32)
+    return np.array(result["embedding"], dtype=np.float32)
 
 
 # Enhanced tool descriptions with more context and examples
@@ -78,9 +75,6 @@ tool_lookup = {
 
 
 def check_for_tool(query: str, threshold=0.6):
-    """
-    Check if a query matches any quality tool using semantic similarity.
-    """
     query_embedding = get_embedding(query.lower())
 
     best_match = {"match": False}
@@ -90,7 +84,7 @@ def check_for_tool(query: str, threshold=0.6):
         tool_descriptions = info["descriptions"]
         description_embeddings = np.array([get_embedding(desc) for desc in tool_descriptions])
 
-        similarities = description_embeddings @ query_embedding  # dot product
+        similarities = description_embeddings @ query_embedding
         max_similarity = np.max(similarities)
 
         if max_similarity > highest_score and max_similarity >= threshold:
@@ -105,10 +99,8 @@ def check_for_tool(query: str, threshold=0.6):
     return best_match
 
 
-# Add these imports at the top of the file (after line 2)
 from data_extractor import DataExtractor, DefectData, ProcessData, CauseEffectData
 
-# Add this enhanced tool lookup with generation capabilities
 enhanced_tool_lookup = {
     "pareto_chart": {
         "tool": "Pareto Chart",
@@ -199,9 +191,6 @@ enhanced_tool_lookup = {
 
 
 def check_for_tool_generation(query: str, threshold=0.6):
-    """
-    Enhanced tool detection that determines if we should generate or just recommend a tool.
-    """
     extractor = DataExtractor()
     query_embedding = get_embedding(query.lower())
 
