@@ -172,11 +172,8 @@ async def ask_bot(query, chat_history=None, custom_index=None, image=None, mode=
         return (response.text or "") .strip() + tool_recommendation
 
     # Initialize vector store if not already done
-    if vector_store is None and custom_index is None:
-        initialize_vector_store()
-
-    # Use the custom index if provided, otherwise use the default vector store
-    db = custom_index if custom_index else vector_store
+    # Use the custom index if provided, otherwise lazily load the default vector store
+    db = custom_index if custom_index else get_vector_store()
 
     # Run tool recommendation in parallel
     loop = asyncio.get_event_loop()
