@@ -72,7 +72,11 @@ async def upload_csv(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    
+
+@app.get("/")
+async def root():
+    return {"status": "ok"}
+
 @app.post("/api/test-tool")
 async def test_tool_generation():
     try:
