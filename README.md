@@ -85,7 +85,7 @@ npm install
 4. **Environment Setup**
 Create `.env` file in root directory:
 ```env
-GOOGLE_API_KEY=your_api_key
+GEMINI_API_KEY=your_api_key
 ```
 
 ### Running the Application

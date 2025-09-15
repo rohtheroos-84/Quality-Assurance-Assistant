@@ -16,11 +16,6 @@ from ai_data_parser import AIDataParser
 from ui_components import ToolDisplayComponent, DataInputForms, ToolCustomizationPanel, ExportManager
 from email_config import EmailEscalation
 
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-# Load environment variables
-#load_dotenv()
-#genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
 # Persona system
 def get_persona_prompt(persona: str) -> str:
     """Get persona-specific system prompt for Gemini"""
