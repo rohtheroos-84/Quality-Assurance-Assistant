@@ -94,12 +94,12 @@ model = genai.GenerativeModel("gemini-2.5-flash-lite")
 executor = ThreadPoolExecutor(max_workers=3)  # For parallel operations
 
 
-
 def initialize_vector_store():
     global vector_store
     if vector_store is None:
+        path = os.getenv("VECTOR_INDEX_PATH", "vector_index")  
         vector_store = FAISS.load_local(
-            "vector_index",
+            path,
             embeddings,
             allow_dangerous_deserialization=True
         )
