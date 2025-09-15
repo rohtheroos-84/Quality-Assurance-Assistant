@@ -105,31 +105,17 @@ import numpy as np
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
 _embeddings = None
-_EMBED_CACHE = {}
-
-class GeminiEmbeddings:
-    def __init__(self, model: str = "models/text-embedding-004"):
-        self.model = model
-
-    def _embed(self, text: str) -> np.ndarray:
-        if text in _EMBED_CACHE:
-            return _EMBED_CACHE[text]
-        res = genai.embed_content(model=self.model, content=text)
-        emb = np.array(res["embedding"], dtype=np.float32)
-        _EMBED_CACHE[text] = emb
-        return emb
-
-    def embed_documents(self, texts):
-        return [self._embed(t).tolist() for t in texts]
-
-    def embed_query(self, text):
-        return self._embed(text).tolist()
 
 def get_embeddings():
     global _embeddings
     if _embeddings is None:
-        _embeddings = GeminiEmbeddings(model="models/text-embedding-004")
+        _embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/text-embedding-004",
+            google_api_key=os.getenv("GEMINI_API_KEY")
+        )
     return _embeddings
 
 
