@@ -1,6 +1,5 @@
 import google.generativeai as genai
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
 import os
 #from dotenv import load_dotenv
 from tool_recommender import check_for_tool, check_for_tool_generation, enhanced_tool_lookup
@@ -102,12 +101,37 @@ def get_executor():
         _executor = ThreadPoolExecutor(max_workers=3)
     return _executor
 
+import numpy as np
+
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+_embeddings = None
+_EMBED_CACHE = {}
+
+class GeminiEmbeddings:
+    def __init__(self, model: str = "models/text-embedding-004"):
+        self.model = model
+
+    def _embed(self, text: str) -> np.ndarray:
+        if text in _EMBED_CACHE:
+            return _EMBED_CACHE[text]
+        res = genai.embed_content(model=self.model, content=text)
+        emb = np.array(res["embedding"], dtype=np.float32)
+        _EMBED_CACHE[text] = emb
+        return emb
+
+    def embed_documents(self, texts):
+        return [self._embed(t).tolist() for t in texts]
+
+    def embed_query(self, text):
+        return self._embed(text).tolist()
+
 def get_embeddings():
     global _embeddings
     if _embeddings is None:
-        from langchain_huggingface import HuggingFaceEmbeddings
-        _embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        _embeddings = GeminiEmbeddings(model="models/text-embedding-004")
     return _embeddings
+
 
 def get_vector_store():
     global _vector_store
