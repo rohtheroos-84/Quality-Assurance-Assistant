@@ -1,5 +1,21 @@
-from sentence_transformers import SentenceTransformer
+import google.generativeai as genai
 import numpy as np
+import os
+
+# Configure Gemini
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+# Initialize embeddings model once
+embeddings_model = genai.embedder.EmbeddingModel("models/text-embedding-004")
+
+def get_embedding(text: str):
+    """Return embedding vector from Gemini"""
+    result = embeddings_model.embed_content(
+        model="models/text-embedding-004",
+        content=text
+    )
+    return np.array(result.embedding, dtype=np.float32)
+
 
 # Enhanced tool descriptions with more context and examples
 tool_lookup = {
@@ -60,47 +76,34 @@ tool_lookup = {
     }
 }
 
-# Initialize the sentence transformer model
-model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 
 def check_for_tool(query: str, threshold=0.6):
     """
     Check if a query matches any quality tool using semantic similarity.
-    
-    Args:
-        query (str): The user's question or request
-        threshold (float): Minimum similarity score to consider a match (0-1)
-        
-    Returns:
-        dict: Tool match information or no match
     """
-    # Encode the query
-    query_embedding = model.encode(query.lower())
-    
+    query_embedding = get_embedding(query.lower())
+
     best_match = {"match": False}
     highest_score = 0
-    
-    # Check each tool and its descriptions
+
     for tool_id, info in tool_lookup.items():
-        # Encode all descriptions for this tool
         tool_descriptions = info["descriptions"]
-        description_embeddings = model.encode(tool_descriptions)
-        
-        # Calculate similarities with all descriptions
-        similarities = np.dot(description_embeddings, query_embedding)
+        description_embeddings = np.array([get_embedding(desc) for desc in tool_descriptions])
+
+        similarities = description_embeddings @ query_embedding  # dot product
         max_similarity = np.max(similarities)
-        
-        # Update if this is the best match so far
+
         if max_similarity > highest_score and max_similarity >= threshold:
             highest_score = max_similarity
             best_match = {
                 "match": True,
                 "tool": info["tool"],
                 "when_to_use": info["when_to_use"],
-                "confidence": float(max_similarity)
+                "confidence": float(max_similarity),
             }
-    
+
     return best_match
+
 
 # Add these imports at the top of the file (after line 2)
 from data_extractor import DataExtractor, DefectData, ProcessData, CauseEffectData
@@ -115,7 +118,7 @@ enhanced_tool_lookup = {
         "min_data_points": 3,
         "descriptions": [
             "analyze frequency of defects",
-            "identify most common problems", 
+            "identify most common problems",
             "prioritize quality issues",
             "find frequent failures",
             "count occurrence of problems",
@@ -194,49 +197,34 @@ enhanced_tool_lookup = {
     }
 }
 
+
 def check_for_tool_generation(query: str, threshold=0.6):
     """
     Enhanced tool detection that determines if we should generate or just recommend a tool.
-    
-    Args:
-        query (str): The user's question or request
-        threshold (float): Minimum similarity score to consider a match (0-1)
-        
-    Returns:
-        dict: Tool match information with generation capability
     """
-    # Initialize data extractor
     extractor = DataExtractor()
-    
-    # Encode the query
-    query_embedding = model.encode(query.lower())
-    
+    query_embedding = get_embedding(query.lower())
+
     best_match = {"match": False, "should_generate": False}
     highest_score = 0
-    
-    # Check each tool and its descriptions
+
     for tool_id, info in enhanced_tool_lookup.items():
-        # Encode all descriptions for this tool
         tool_descriptions = info["descriptions"]
-        description_embeddings = model.encode(tool_descriptions)
-        
-        # Calculate similarities with all descriptions
-        similarities = np.dot(description_embeddings, query_embedding)
+        description_embeddings = np.array([get_embedding(desc) for desc in tool_descriptions])
+
+        similarities = description_embeddings @ query_embedding
         max_similarity = np.max(similarities)
-        
-        # Update if this is the best match so far
+
         if max_similarity > highest_score and max_similarity >= threshold:
             highest_score = max_similarity
-            
-            # Check if we can generate this tool
+
             can_generate = info.get("can_generate", False)
             required_data = info.get("required_data", None)
             min_data_points = info.get("min_data_points", 0)
-            
-            # Try to extract required data
+
             data_sufficient = False
             extracted_data = None
-            
+
             if required_data == "defect_data":
                 extracted_data = extractor.extract_defect_data(query)
                 data_sufficient = extracted_data and len(extracted_data.categories) >= min_data_points
@@ -246,9 +234,9 @@ def check_for_tool_generation(query: str, threshold=0.6):
             elif required_data == "cause_effect_data":
                 extracted_data = extractor.extract_cause_effect_data(query)
                 data_sufficient = extracted_data and len(extracted_data.main_categories) >= min_data_points
-            
+
             should_generate = can_generate and data_sufficient
-            
+
             best_match = {
                 "match": True,
                 "tool": info["tool"],
@@ -259,34 +247,24 @@ def check_for_tool_generation(query: str, threshold=0.6):
                 "required_data": required_data,
                 "extracted_data": extracted_data,
                 "data_sufficient": data_sufficient,
-                "min_data_points": min_data_points
+                "min_data_points": min_data_points,
             }
-    
+
     return best_match
 
+
 def get_generation_suggestion(query: str, tool_match: dict) -> str:
-    """
-    Generate a suggestion for tool generation based on the match and data availability.
-    
-    Args:
-        query (str): Original user query
-        tool_match (dict): Result from check_for_tool_generation
-        
-    Returns:
-        str: Suggestion message for the user
-    """
     if not tool_match["match"]:
         return ""
-    
+
     if tool_match["should_generate"]:
         return f"\n\n🎯 **I can generate a {tool_match['tool']} for you!**\nI found sufficient data in your message to create this tool automatically.\n\nType 'Generate {tool_match['tool']}' to create it, or ask me to help you with the data if needed."
-    
+
     elif tool_match["can_generate"] and not tool_match["data_sufficient"]:
         missing_data = tool_match["required_data"].replace("_", " ").title()
         min_points = tool_match["min_data_points"]
         return f"\n\n�� **I can generate a {tool_match['tool']} for you!**\nHowever, I need more {missing_data} to create it. I need at least {min_points} data points.\n\nPlease provide more specific data, or ask me to help you structure the information."
-    
+
     else:
-        # Fall back to regular recommendation
         confidence = tool_match.get("confidence", 0) * 100
         return f"\n\nRecommended Quality Tool: **{tool_match['tool']}** (Confidence: {confidence:.1f}%)\n{tool_match['when_to_use']}"
