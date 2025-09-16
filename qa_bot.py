@@ -177,18 +177,6 @@ def get_vector_store():
     return _vector_store
 
 
-# def get_genai_model():
-#     global _model
-#     if _model is None:
-#         import google.generativeai as genai
-#         key = os.getenv("GEMINI_API_KEY")
-#         if key:
-#             genai.configure(api_key=key)
-#         _model = genai.GenerativeModel("gemini-2.5-flash-lite")
-#     return _model
-
-
-
 def initialize_vector_store():
     global vector_store
     if vector_store is None:
@@ -592,16 +580,26 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
                 return result, None
             except Exception as e:
                 return None, f"Error generating Histogram: {str(e)}"
+            
     # PROCESS CAPABILITY
     elif "capability" in query_lower or "cp" in query_lower or "cpk" in query_lower or "cp/cpk" in query_lower:
-        # Try AI-extracted data first
-        if extracted_data and extracted_data.get('process_data'):
-            process_info = extracted_data['process_data']
-            if process_info.get('measurements') and process_info.get('specifications'):
-                
-                measurements = process_info['measurements']
-                specifications = process_info['specifications']
-                
+        if extracted_data and extracted_data.get('success') and extracted_data.get('data', {}).get('process_data'):
+            process_info = extracted_data['data']['process_data']
+            
+            measurements = []
+            specifications = {}
+            
+            # Handle both dict and object styles
+            if isinstance(process_info, dict):
+                measurements = process_info.get('measurements', [])
+                specifications = process_info.get('specifications', {})
+            else:
+                if hasattr(process_info, 'measurements'):
+                    measurements = process_info.measurements
+                if hasattr(process_info, 'specifications'):
+                    specifications = process_info.specifications
+            
+            if measurements:  # Only proceed if we have measurements
                 process_data = ProcessData(
                     measurements=measurements,
                     specifications=specifications,
@@ -659,8 +657,7 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
                 lsl = specifications['lsl']
                 usl = specifications['usl']
                 target = specifications.get('target', (lsl + usl) / 2)
-                # Generate 30 sample points normally distributed around target
-                std_dev = (usl - lsl) / 6  # Assume 6-sigma process
+                std_dev = (usl - lsl) / 6  
                 measurements = np.random.normal(target, std_dev, 30).tolist()
                 measurements = [max(lsl, min(usl, m)) for m in measurements]  # Clamp to spec limits
         
@@ -683,16 +680,18 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
     
     # FISHBONE DIAGRAM
     elif "fishbone" in query_lower or "root cause" in query_lower or ("cause" in query_lower and "diagram" in query_lower):
-        # Try AI-extracted data first
-        if extracted_data and extracted_data.get('success') and extracted_data.get('data', {}).get('cause_effect_data'):
-            cause_info = extracted_data['data']['cause_effect_data']
-            if cause_info.get('main_categories') and cause_info.get('sub_causes'):
-    
+        if extracted_data and hasattr(extracted_data, 'data') and hasattr(extracted_data.data, 'cause_effect_data'):
+            cause_info = extracted_data.data.cause_effect_data
+            
+            if (hasattr(cause_info, 'main_categories') and 
+                hasattr(cause_info, 'sub_causes') and 
+                cause_info.main_categories and 
+                cause_info.sub_causes):
                 
                 cause_data = CauseEffectData(
-                    problem=cause_info.get('problem', 'Quality problem'),
-                    main_categories=cause_info['main_categories'],
-                    sub_causes=cause_info['sub_causes'],
+                    problem=getattr(cause_info, 'problem', 'Quality problem'),
+                    main_categories=cause_info.main_categories,
+                    sub_causes=cause_info.sub_causes,
                     confidence=0.9  # Higher confidence for AI extraction
                 )
                 
