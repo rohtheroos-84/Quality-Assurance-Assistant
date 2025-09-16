@@ -10,14 +10,22 @@ import streamlit as st
 import re
 import json
 import datetime
-# Add these imports
 from dynamic_tool_generator import DynamicToolGenerator
 from ai_data_parser import AIDataParser
 from ui_components import ToolDisplayComponent, DataInputForms, ToolCustomizationPanel, ExportManager
 from email_config import EmailEscalation
-
 import numpy as np
-import google.generativeai as genai
+from dotenv import load_dotenv
+from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
+import time
+from data_extractor import DefectData
+from data_extractor import ProcessData
+from data_extractor import CauseEffectData
+import traceback
+
+load_dotenv()  # This reads .env and puts vars into environment
+
 
 key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 if not key:
@@ -35,7 +43,7 @@ class GeminiEmbeddings:
     def _embed(self, text: str) -> np.ndarray:
         if text in _EMBED_CACHE:
             return _EMBED_CACHE[text]
-        import time
+        
         t0 = time.time()
         res = genai.embed_content(model=self.model, content=text)
         print(f">>> Embedded 1 text in {time.time()-t0:.2f}s")
@@ -121,9 +129,6 @@ def apply_persona_to_prompt(base_prompt: str, persona: str) -> str:
     persona_instruction = get_persona_prompt(persona)
     return f"{persona_instruction}\n\n{base_prompt}"
 
-import os
-from typing import Optional
-from concurrent.futures import ThreadPoolExecutor
 
 _embeddings = None
 _vector_store = None
@@ -133,7 +138,7 @@ _executor: Optional[ThreadPoolExecutor] = None
 def get_executor():
     global _executor
     if _executor is None:
-        _executor = ThreadPoolExecutor(max_workers=3)
+        _executor = ThreadPoolExecutor(max_workers=5)
     return _executor
 
 from qa_bot import get_embeddings
@@ -172,15 +177,15 @@ def get_vector_store():
     return _vector_store
 
 
-def get_genai_model():
-    global _model
-    if _model is None:
-        import google.generativeai as genai
-        key = os.getenv("GEMINI_API_KEY")
-        if key:
-            genai.configure(api_key=key)
-        _model = genai.GenerativeModel("gemini-2.5-flash-lite")
-    return _model
+# def get_genai_model():
+#     global _model
+#     if _model is None:
+#         import google.generativeai as genai
+#         key = os.getenv("GEMINI_API_KEY")
+#         if key:
+#             genai.configure(api_key=key)
+#         _model = genai.GenerativeModel("gemini-2.5-flash-lite")
+#     return _model
 
 
 
@@ -234,7 +239,7 @@ async def ask_bot(query, chat_history=None, custom_index=None, image=None, mode=
     loop = asyncio.get_event_loop()
     tool_future = loop.run_in_executor(get_executor(), get_tool_recommendation, query)
 
-    import time
+    
     t0 = time.time()
     print(">>> running similarity_search for:", query)
 
@@ -258,7 +263,7 @@ async def ask_bot(query, chat_history=None, custom_index=None, image=None, mode=
     # Format memory (last 15 exchanges)
     memory_context = ""
     if chat_history:
-        for msg in chat_history[-30:]:  # Last 5 rounds
+        for msg in chat_history[-15:]:  
             role = "User" if msg["role"] == "user" else "Assistant"
             memory_context += f"{role}: {msg['content']}\n"
     csv_text = f"\nUploaded CSV/Excel Context:\n{csv_context}\n" if csv_context else ""
@@ -349,7 +354,6 @@ async def _fallback_regex_extraction(query: str, chat_history=None):
         for msg in reversed(chat_history[-5:]):  # Look back at last 5 user messages
             if msg["role"] == "user":
                 # Check if the message contains at least 2 numbers (to be considered "data")
-                import re
                 numbers = re.findall(r'(\d+\.?\d*)', msg["content"])
                 if len(numbers) >= 2:
                     search_query = msg["content"]
@@ -399,11 +403,9 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
         # Try AI-extracted data first
         if extracted_data and extracted_data.get('success') and extracted_data.get('data', {}).get('defect_data'):
             defect_info = extracted_data['data']['defect_data']
-            if defect_info.get('categories') and defect_info.get('counts'):
-                from data_extractor import DefectData
-                
-                categories = defect_info['categories']
-                counts = defect_info['counts']
+            if hasattr(defect_info, 'categories') and hasattr(defect_info, 'counts'):
+                categories = defect_info.categories
+                counts = defect_info.counts
                 total_defects = sum(counts)
                 frequencies = [count / total_defects for count in counts]
 
@@ -422,7 +424,6 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
                     return None, f"Error generating Pareto chart: {str(e)}"
         
         # Fallback to regex extraction
-        import re
         # Look for patterns like "Surface scratch 15, Dimensional error 8"
         defect_pattern = r'([^,]+?)\s+(\d+)'
         matches = re.findall(defect_pattern, search_query)
@@ -439,7 +440,6 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
                 categories.append(category.strip())
                 counts.append(int(count))
 
-            from data_extractor import DefectData
             total_defects = sum(counts)
             frequencies = [count / total_defects for count in counts]
 
@@ -460,14 +460,23 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
     # CONTROL CHART
     elif "control chart" in query_lower or ("control" in query_lower and "chart" in query_lower):
         # Try AI-extracted data first
-        if extracted_data and extracted_data.get('process_data'):
-            process_info = extracted_data['process_data']
-            if process_info.get('measurements'):
-                from data_extractor import ProcessData
-                
-                measurements = process_info['measurements']
-                specifications = process_info.get('specifications', {})
-                
+        if extracted_data and extracted_data.get('success') and extracted_data.get('data', {}).get('process_data'):
+            process_info = extracted_data['data']['process_data']
+            
+            measurements = []
+            specifications = {}
+            
+            # Handle both dict and object styles
+            if isinstance(process_info, dict):
+                measurements = process_info.get("measurements", [])
+                specifications = process_info.get("specifications", {})
+            else:
+                if hasattr(process_info, 'measurements'):
+                    measurements = process_info.measurements
+                if hasattr(process_info, 'specifications'):
+                    specifications = process_info.specifications
+                    
+            if measurements:  # Only proceed if we have measurements
                 process_data = ProcessData(
                     measurements=measurements,
                     specifications=specifications,
@@ -481,15 +490,25 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
                     return None, f"Error generating Control chart: {str(e)}"
         
         # Fallback to regex extraction
-        import re
-        from data_extractor import ProcessData
-
         measurement_pattern = r'(\d+\.?\d*)'
-        measurements = [float(m) for m in re.findall(measurement_pattern, search_query) if float(m) > 0]
+        measurements = []
+        for m in re.findall(measurement_pattern, search_query):
+            try:
+                val = float(m)
+                if val > 0:
+                    measurements.append(val)
+            except ValueError:
+                pass
         
         # If no measurements found in search_query, try the original query
         if not measurements:
-            measurements = [float(m) for m in re.findall(measurement_pattern, query) if float(m) > 0]
+            for m in re.findall(measurement_pattern, query):
+                try:
+                    val = float(m)
+                    if val > 0:
+                        measurements.append(val)
+                except ValueError:
+                    pass
 
         usl_pattern = r'usl[:\s]*(\d+\.?\d*)'
         lsl_pattern = r'lsl[:\s]*(\d+\.?\d*)'
@@ -520,6 +539,7 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
             except Exception as e:
                 return None, f"Error generating Control chart: {str(e)}"
 
+
     # HISTOGRAM
     elif "histogram" in query_lower or ("yes" in query_lower and "histogram" in query_lower) or ("a " in query_lower and "histogram" in query_lower) or ("please" in query_lower and "histogram" in query_lower):
         # Try AI-extracted data first
@@ -536,9 +556,6 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
                     return None, f"Error generating Histogram: {str(e)}"
         
         # Fallback to regex extraction
-        import re
-        from data_extractor import ProcessData
-
         # Extract measurements from search_query (which includes conversation history)
         measurement_pattern = r'(\d+\.?\d*)'
         measurements = [float(m) for m in re.findall(measurement_pattern, search_query) if float(m) > 0]
@@ -581,7 +598,6 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
         if extracted_data and extracted_data.get('process_data'):
             process_info = extracted_data['process_data']
             if process_info.get('measurements') and process_info.get('specifications'):
-                from data_extractor import ProcessData
                 
                 measurements = process_info['measurements']
                 specifications = process_info['specifications']
@@ -599,8 +615,6 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
                     return None, f"Error generating Process Capability analysis: {str(e)}"
         
         # Fallback to regex extraction
-        import re
-        from data_extractor import ProcessData
         
         # Extract measurements
         measurement_pattern = r'(\d+\.?\d*)'
@@ -646,7 +660,6 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
                 usl = specifications['usl']
                 target = specifications.get('target', (lsl + usl) / 2)
                 # Generate 30 sample points normally distributed around target
-                import numpy as np
                 std_dev = (usl - lsl) / 6  # Assume 6-sigma process
                 measurements = np.random.normal(target, std_dev, 30).tolist()
                 measurements = [max(lsl, min(usl, m)) for m in measurements]  # Clamp to spec limits
@@ -674,7 +687,7 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
         if extracted_data and extracted_data.get('success') and extracted_data.get('data', {}).get('cause_effect_data'):
             cause_info = extracted_data['data']['cause_effect_data']
             if cause_info.get('main_categories') and cause_info.get('sub_causes'):
-                from data_extractor import CauseEffectData
+    
                 
                 cause_data = CauseEffectData(
                     problem=cause_info.get('problem', 'Quality problem'),
@@ -690,9 +703,6 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
                     return None, f"Error generating Fishbone diagram: {str(e)}"
         
         # Fallback to regex extraction
-        from data_extractor import CauseEffectData
-        import re
-        
         # Extract problem statement
         problem = "Quality problem"  # Default
         if "defect" in query_lower:
@@ -729,7 +739,8 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
             except Exception as e:
                 return None, f"Error generating Fishbone diagram: {str(e)}"
     
-    return None, "No tool generation requested"
+    return None, "I want to help you, but I’ll need a bit more context. Could you provide more details so I can assist better?"
+
     
 def get_tool_generation_suggestion(query: str) -> str:
     """Fast keyword-based tool generation suggestion (no Gemini calls)."""
@@ -886,14 +897,13 @@ async def ask_bot_with_tool_generation(query, chat_history=None, custom_index=No
     query_lower = query.lower()
     is_tool_request = (
         any(keyword in query_lower for keyword in ["generate", "create", "build", "make", "chart"]) or
-        any(tool in query_lower for tool in ["pareto", "histogram", "control chart", "capability", "fishbone"]) or
-        ("yes" in query_lower and any(tool in query_lower for tool in ["histogram", "pareto", "control", "capability", "fishbone"])) or
-        ("please" in query_lower and any(tool in query_lower for tool in ["histogram", "pareto", "control", "capability", "fishbone"])) or
-        ("a " in query_lower and any(tool in query_lower for tool in ["histogram", "pareto", "control", "capability", "fishbone"]))
+        any(tool in query_lower for tool in ["pareto", "histogram", "controlchart", "capability", "fishbone"]) or
+        ("yes" in query_lower and any(tool in query_lower for tool in ["histogram", "pareto", "controlchart", "capability", "fishbone"])) or
+        ("please" in query_lower and any(tool in query_lower for tool in ["histogram", "pareto", "controlchart", "capability", "fishbone"])) or
+        ("a " in query_lower and any(tool in query_lower for tool in ["histogram", "pareto", "controlchart", "capability", "fishbone"]))
     )
     
     if is_tool_request:
-        import time
         t0 = time.time()
         tool_result, error = await generate_qc_tool(query, chat_history, custom_index, image, mode)
         t1 = time.time()
@@ -916,7 +926,6 @@ async def ask_bot_with_tool_generation(query, chat_history=None, custom_index=No
             }
     
     # Fall back to regular chatbot response
-    import time
     t0 = time.time()
     regular_response = await ask_bot(query, chat_history, custom_index, image, mode, persona, csv_context=csv_context)
     t1 = time.time()
@@ -938,7 +947,6 @@ async def ask_bot_with_escalation(query, chat_history=None, custom_index=None, i
     """Enhanced ask_bot function with tool generation + optional escalation check (no email)."""
     try:
         # Run through tool generation / chat logic
-        import time
         t1 = time.time()
         response = await ask_bot_with_tool_generation(
             query, chat_history, custom_index, image, mode, persona, csv_context=csv_context
@@ -1011,7 +1019,6 @@ Please respond with ONLY one of these options:
         return response
 
     except Exception as e:
-        import traceback
         print("DEBUG: Error in ask_bot_with_escalation:", repr(e))
         traceback.print_exc()
         return {
