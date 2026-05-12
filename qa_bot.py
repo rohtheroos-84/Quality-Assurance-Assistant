@@ -1,5 +1,6 @@
 import google.generativeai as genai
 from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
 import os
 #from dotenv import load_dotenv
 from tool_recommender import check_for_tool, check_for_tool_generation, enhanced_tool_lookup
