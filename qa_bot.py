@@ -7,7 +7,6 @@ from tool_recommender import check_for_tool, check_for_tool_generation, enhanced
 from functools import lru_cache
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-import streamlit as st
 import re
 import json
 import datetime
@@ -18,10 +17,9 @@ from ui_components import ToolDisplayComponent, DataInputForms, ToolCustomizatio
 from email_config import EmailEscalation
 
 # Disable Google's embedding models - use HuggingFace only
-import os
 os.environ['GOOGLE_GENERATIVEAI_DISABLE_EMBEDDING'] = 'true'
 
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 # Load environment variables
 #load_dotenv()
 #genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
@@ -516,12 +514,6 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
                 return None, f"Error generating Histogram: {str(e)}"
     # PROCESS CAPABILITY
     elif "capability" in query_lower or "cp" in query_lower or "cpk" in query_lower or "cp/cpk" in query_lower:
-        print(f"\n=== DEBUG CAPABILITY ANALYSIS ===")
-        print(f"Original query: {query[:200]}")
-        print(f"search_query: {search_query[:200]}")
-        print(f"extracted_data: {extracted_data}")
-        print(f"===============================\n")
-        
         # Try AI-extracted data first
         if extracted_data and extracted_data.get('process_data'):
             process_info = extracted_data['process_data']
@@ -555,15 +547,10 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
         if not measurements:
             measurements = [float(m) for m in re.findall(measurement_pattern, query) if float(m) > 0]
         
-        print(f"Measurements extracted: {measurements}")
-        
         # Extract specification limits - improved patterns
         usl_pattern = r'usl[:\s]*(\d+\.?\d*)'
         lsl_pattern = r'lsl[:\s]*(\d+\.?\d*)'
         target_pattern = r'target[:\s]*(\d+\.?\d*)'
-        
-        print(f"USL pattern: {usl_pattern}")
-        print(f"Searching in search_query: {search_query[:150]}")
         
         # Add range pattern for "10.0-10.5" format
         range_pattern = r'(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)'
@@ -579,10 +566,6 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
         target_match = re.search(target_pattern, search_query, re.IGNORECASE) or \
                re.search(target_pattern, query, re.IGNORECASE)
         
-        print(f"USL match: {usl_match}")
-        print(f"LSL match: {lsl_match}")
-        print(f"Target match: {target_match}")
-        
         specifications = {}
         
         # Handle range specifications like "10.0-10.5"
@@ -597,11 +580,6 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
                 specifications['lsl'] = float(lsl_match.group(1))
             if target_match:
                 specifications['target'] = float(target_match.group(1))
-        
-        print(f"Final specifications: {specifications}")
-        print(f"measurements bool: {bool(measurements)}, specs bool: {bool(specifications)}")
-        print(f"measurements and specifications: {bool(measurements and specifications)}")
-        print(f"===============================\n")
         
         # Generate sample data if no measurements provided but specifications exist
         if not measurements and specifications:
