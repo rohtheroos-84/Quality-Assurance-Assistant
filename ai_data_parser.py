@@ -8,7 +8,7 @@ from tool_recommender import enhanced_tool_lookup
 class AIDataParser:
     """AI-powered data extraction and interpretation using Gemini"""
     
-    def __init__(self, model_name: str = "gemini-2.5-flash-lite"):
+    def __init__(self, model_name: str = "gemini-2.5-flash"):
         self.model = genai.GenerativeModel(model_name)
         self.data_extractor = DataExtractor()
     
@@ -118,7 +118,10 @@ class AIDataParser:
         # Convert defect data
         if extracted_data.get('defect_data'):
             defect_info = extracted_data['defect_data']
-            if defect_info.get('categories') and defect_info.get('counts'):
+            # Check if it's already a DefectData object or a dictionary
+            if isinstance(defect_info, DefectData):
+                result['defect_data'] = defect_info
+            elif hasattr(defect_info, 'get') and defect_info.get('categories') and defect_info.get('counts'):
                 total_defects = sum(defect_info['counts'])
                 frequencies = [count/total_defects for count in defect_info['counts']]
                 
@@ -134,7 +137,10 @@ class AIDataParser:
         # Convert process data
         if extracted_data.get('process_data'):
             process_info = extracted_data['process_data']
-            if process_info.get('measurements'):
+            # Check if it's already a ProcessData object or a dictionary
+            if isinstance(process_info, ProcessData):
+                result['process_data'] = process_info
+            elif hasattr(process_info, 'get') and process_info.get('measurements'):
                 result['process_data'] = ProcessData(
                     measurements=process_info['measurements'],
                     specifications=process_info.get('specifications', {}),
@@ -146,7 +152,10 @@ class AIDataParser:
         # Convert cause-effect data
         if extracted_data.get('cause_effect_data'):
             cause_info = extracted_data['cause_effect_data']
-            if cause_info.get('problem') or cause_info.get('main_categories'):
+            # Check if it's already a CauseEffectData object or a dictionary
+            if isinstance(cause_info, CauseEffectData):
+                result['cause_effect_data'] = cause_info
+            elif hasattr(cause_info, 'get') and (cause_info.get('problem') or cause_info.get('main_categories')):
                 result['cause_effect_data'] = CauseEffectData(
                     problem=cause_info.get('problem', 'Unspecified problem'),
                     main_categories=cause_info.get('main_categories', []),

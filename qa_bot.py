@@ -1,12 +1,12 @@
 import google.generativeai as genai
 from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
 import os
 #from dotenv import load_dotenv
 from tool_recommender import check_for_tool, check_for_tool_generation, enhanced_tool_lookup
 from functools import lru_cache
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-import streamlit as st
 import re
 import json
 import datetime
@@ -15,6 +15,14 @@ from dynamic_tool_generator import DynamicToolGenerator
 from ai_data_parser import AIDataParser
 from ui_components import ToolDisplayComponent, DataInputForms, ToolCustomizationPanel, ExportManager
 from email_config import EmailEscalation
+
+# Disable Google's embedding models - use HuggingFace only
+os.environ['GOOGLE_GENERATIVEAI_DISABLE_EMBEDDING'] = 'true'
+
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# Load environment variables
+#load_dotenv()
+#genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 import numpy as np
 import google.generativeai as genai
@@ -136,41 +144,31 @@ def get_executor():
         _executor = ThreadPoolExecutor(max_workers=3)
     return _executor
 
-from qa_bot import get_embeddings
+import numpy as np
 
-_vector_store = None
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+_embeddings = None
+
+def get_embeddings():
+    global _embeddings
+    if _embeddings is None:
+        _embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/text-embedding-004",
+            google_api_key=os.getenv("GEMINI_API_KEY")
+        )
+    return _embeddings
+
 
 def get_vector_store():
     global _vector_store
     if _vector_store is None:
-        emb_obj = get_embeddings()
-        try:
-            _vector_store = FAISS.load_local(
-                "vector_index",
-                embedding_function=emb_obj.embed_query,
-                allow_dangerous_deserialization=True
-            )
-        except Exception:
-            try:
-                _vector_store = FAISS.load_local(
-                    "vector_index",
-                    embeddings=emb_obj,
-                    allow_dangerous_deserialization=True
-                )
-            except Exception:
-                _vector_store = FAISS.load_local(
-                    "vector_index",
-                    embedding=emb_obj,
-                    allow_dangerous_deserialization=True
-                )
-
-        # Safety: ensure it's always callable
-        if not callable(getattr(_vector_store, "embedding_function", None)):
-            if getattr(emb_obj, "embed_query", None):
-                _vector_store.embedding_function = emb_obj.embed_query
-
+        from langchain_community.vectorstores import FAISS
+        path = os.getenv("VECTOR_INDEX_PATH", "vector_index")
+        _vector_store = FAISS.load_local(path, get_embeddings(), allow_dangerous_deserialization=True)
     return _vector_store
-
 
 def get_genai_model():
     global _model
@@ -187,12 +185,22 @@ def get_genai_model():
 def initialize_vector_store():
     global vector_store
     if vector_store is None:
-        path = os.getenv("VECTOR_INDEX_PATH", "vector_index")  
-        vector_store = FAISS.load_local(
-            path,
-            get_embeddings(),
-            allow_dangerous_deserialization=True
-        )
+        try:
+            vector_store = FAISS.load_local(
+                "vector_index",
+                embeddings,
+                allow_dangerous_deserialization=True
+            )
+        except Exception as e:
+            print(f"Error loading vector store: {e}")
+            print("Attempting to create empty vector store as fallback")
+            # Create an empty FAISS index if loading fails
+            import numpy as np
+            vector_store = FAISS.from_texts(
+                ["empty document"],
+                embeddings,
+                metadatas=[{"source": "empty"}]
+            )
 
 # Cache tool recommendations to avoid recomputing for similar queries
 @lru_cache(maxsize=1000)
@@ -234,14 +242,8 @@ async def ask_bot(query, chat_history=None, custom_index=None, image=None, mode=
     loop = asyncio.get_event_loop()
     tool_future = loop.run_in_executor(get_executor(), get_tool_recommendation, query)
 
-    import time
-    t0 = time.time()
-    print(">>> running similarity_search for:", query)
-
+    # Get relevant documents from vector DB
     relevant_docs = db.similarity_search(query, k=3)
-
-    print(">>> similarity_search took", time.time() - t0, "seconds")
-
 
     # Prepare context with source citations
     context_with_sources = []
@@ -343,21 +345,27 @@ export_manager = ExportManager()
 
 async def _fallback_regex_extraction(query: str, chat_history=None):
     """Fallback mechanism using regex to extract data from conversation history"""
+    import re
+    
+    # ALWAYS start with the current query - it should take precedence
     search_query = query
+    
+    # Check if current query has numeric data
+    current_numbers = re.findall(r'(\d+\.?\d*)', query)
+    if len(current_numbers) >= 2:
+        # Current query has data, use it
+        return search_query
+    
+    # If current query has no data, look back at chat history for context
     if chat_history:
-        found_numeric = False
         for msg in reversed(chat_history[-5:]):  # Look back at last 5 user messages
             if msg["role"] == "user":
                 # Check if the message contains at least 2 numbers (to be considered "data")
-                import re
                 numbers = re.findall(r'(\d+\.?\d*)', msg["content"])
                 if len(numbers) >= 2:
                     search_query = msg["content"]
-                    found_numeric = True
                     break
-        # If no numeric history found, just stick with current query
-        if not found_numeric:
-            search_query = query
+    
     return search_query
 
 async def generate_qc_tool(query: str, chat_history=None, custom_index=None, image=None, mode=None):
@@ -399,11 +407,11 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
         # Try AI-extracted data first
         if extracted_data and extracted_data.get('success') and extracted_data.get('data', {}).get('defect_data'):
             defect_info = extracted_data['data']['defect_data']
-            if defect_info.get('categories') and defect_info.get('counts'):
+            if hasattr(defect_info, 'categories') and hasattr(defect_info, 'counts'):
                 from data_extractor import DefectData
                 
-                categories = defect_info['categories']
-                counts = defect_info['counts']
+                categories = defect_info.categories
+                counts = defect_info.counts
                 total_defects = sum(counts)
                 frequencies = [count / total_defects for count in counts]
 
@@ -462,11 +470,11 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
         # Try AI-extracted data first
         if extracted_data and extracted_data.get('process_data'):
             process_info = extracted_data['process_data']
-            if process_info.get('measurements'):
+            if hasattr(process_info, 'measurements') and process_info.measurements:
                 from data_extractor import ProcessData
                 
-                measurements = process_info['measurements']
-                specifications = process_info.get('specifications', {})
+                measurements = process_info.measurements
+                specifications = getattr(process_info, 'specifications', {})
                 
                 process_data = ProcessData(
                     measurements=measurements,
@@ -495,9 +503,9 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
         lsl_pattern = r'lsl[:\s]*(\d+\.?\d*)'
         target_pattern = r'target[:\s]*(\d+\.?\d*)'
 
-        usl_match = re.search(usl_pattern, search_query)
-        lsl_match = re.search(lsl_pattern, search_query)
-        target_match = re.search(target_pattern, search_query)
+        usl_match = re.search(usl_pattern, search_query, re.IGNORECASE)
+        lsl_match = re.search(lsl_pattern, search_query, re.IGNORECASE)
+        target_match = re.search(target_pattern, search_query, re.IGNORECASE)
 
         specifications = {}
         if usl_match:
@@ -551,9 +559,9 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
         lsl_pattern = r'lsl[:\s]*(\d+\.?\d*)'
         target_pattern = r'target[:\s]*(\d+\.?\d*)'
 
-        usl_match = re.search(usl_pattern, search_query)
-        lsl_match = re.search(lsl_pattern, search_query)
-        target_match = re.search(target_pattern, search_query)
+        usl_match = re.search(usl_pattern, search_query, re.IGNORECASE)
+        lsl_match = re.search(lsl_pattern, search_query, re.IGNORECASE)
+        target_match = re.search(target_pattern, search_query, re.IGNORECASE)
 
         specifications = {}
         if usl_match:
@@ -580,11 +588,11 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
         # Try AI-extracted data first
         if extracted_data and extracted_data.get('process_data'):
             process_info = extracted_data['process_data']
-            if process_info.get('measurements') and process_info.get('specifications'):
+            if hasattr(process_info, 'measurements') and process_info.measurements and hasattr(process_info, 'specifications') and process_info.specifications:
                 from data_extractor import ProcessData
                 
-                measurements = process_info['measurements']
-                specifications = process_info['specifications']
+                measurements = process_info.measurements
+                specifications = process_info.specifications
                 
                 process_data = ProcessData(
                     measurements=measurements,
@@ -618,10 +626,16 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
         # Add range pattern for "10.0-10.5" format
         range_pattern = r'(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)'
         range_match = re.search(range_pattern, search_query)
-        
-        usl_match = re.search(usl_pattern, search_query)
-        lsl_match = re.search(lsl_pattern, search_query)
-        target_match = re.search(target_pattern, search_query)
+        '''
+        usl_match = re.search(usl_pattern, search_query, re.IGNORECASE)
+        lsl_match = re.search(lsl_pattern, search_query, re.IGNORECASE)
+        target_match = re.search(target_pattern, search_query, re.IGNORECASE) '''
+        usl_match = re.search(usl_pattern, search_query, re.IGNORECASE) or \
+            re.search(usl_pattern, query, re.IGNORECASE)
+        lsl_match = re.search(lsl_pattern, search_query, re.IGNORECASE) or \
+            re.search(lsl_pattern, query, re.IGNORECASE)
+        target_match = re.search(target_pattern, search_query, re.IGNORECASE) or \
+               re.search(target_pattern, query, re.IGNORECASE)
         
         specifications = {}
         
@@ -673,13 +687,13 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
         # Try AI-extracted data first
         if extracted_data and extracted_data.get('success') and extracted_data.get('data', {}).get('cause_effect_data'):
             cause_info = extracted_data['data']['cause_effect_data']
-            if cause_info.get('main_categories') and cause_info.get('sub_causes'):
+            if hasattr(cause_info, 'main_categories') and cause_info.main_categories and hasattr(cause_info, 'sub_causes') and cause_info.sub_causes:
                 from data_extractor import CauseEffectData
                 
                 cause_data = CauseEffectData(
-                    problem=cause_info.get('problem', 'Quality problem'),
-                    main_categories=cause_info['main_categories'],
-                    sub_causes=cause_info['sub_causes'],
+                    problem=getattr(cause_info, 'problem', 'Quality problem'),
+                    main_categories=cause_info.main_categories,
+                    sub_causes=cause_info.sub_causes,
                     confidence=0.9  # Higher confidence for AI extraction
                 )
                 
@@ -729,7 +743,13 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
             except Exception as e:
                 return None, f"Error generating Fishbone diagram: {str(e)}"
     
-    return None, "No tool generation requested"
+    #return None, "No tool generation requested"
+    return None, (
+        "I wasn’t fully sure which quality tool to generate from your request. "
+        "Could you share a bit more detail or specify the type of analysis or chart you’d like? "
+        "For instance, you could mention a Pareto chart, Histogram, Control chart, Capability chart, or Fishbone diagram, "
+        "along with any relevant data or context."
+        )
     
 def get_tool_generation_suggestion(query: str) -> str:
     """Fast keyword-based tool generation suggestion (no Gemini calls)."""
