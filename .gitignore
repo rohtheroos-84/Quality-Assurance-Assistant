@@ -73,4 +73,3 @@ logs/
 # Misc
 .DS_Store
 Thumbs.db
-.streamlit/secrets.toml

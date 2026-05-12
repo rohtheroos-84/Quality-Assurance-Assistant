@@ -3,15 +3,16 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
 from datetime import datetime
+import streamlit as st
 
 class EmailEscalation:
     def __init__(self):
-        # Email settings - using environment variables for configuration
+        # Email settings - using Streamlit secrets for configuration
         self.smtp_server = "smtp.gmail.com"  # or your email provider
         self.smtp_port = 587
-        self.sender_email = os.getenv("ESCALATION_EMAIL", "aayushmenon27@gmail.com")
-        self.sender_password = os.getenv("ESCALATION_PASSWORD", "afex usio kswl mzoy")
-        self.recipient_email = os.getenv("MANAGER_EMAIL", "aayush.pmenon2023@vitstudent.ac.in")
+        self.sender_email = st.secrets.get("ESCALATION_EMAIL", "aayushmenon27@gmail.com")
+        self.sender_password = st.secrets.get("ESCALATION_PASSWORD", "afex usio kswl mzoy")
+        self.recipient_email = st.secrets.get("MANAGER_EMAIL", "aayush.pmenon2023@vitstudent.ac.in")
     
     def send_escalation_email(self, user_query, chatbot_response, confidence_reason, recipient_email=None):
         """Send escalation email to human support"""
