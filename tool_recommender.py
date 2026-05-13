@@ -1,17 +1,9 @@
-import google.generativeai as genai
 import numpy as np
-import os
-
-# Configure Gemini
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+from embedding_utils import embed_text
 
 def get_embedding(text: str):
     """Return embedding vector from Gemini"""
-    result = genai.embed_content(
-        model="models/text-embedding-004",
-        content=text
-    )
-    return np.array(result["embedding"], dtype=np.float32)
+    return embed_text(text)
 
 
 # Enhanced tool descriptions with more context and examples

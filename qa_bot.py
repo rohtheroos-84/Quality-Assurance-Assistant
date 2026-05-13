@@ -15,6 +15,8 @@ from dynamic_tool_generator import DynamicToolGenerator
 from ai_data_parser import AIDataParser
 from ui_components import ToolDisplayComponent, DataInputForms, ToolCustomizationPanel, ExportManager
 from email_config import EmailEscalation
+from embedding_utils import embed_text, get_embedding_model
+from data_extractor import DefectData, ProcessData, CauseEffectData
 
 import numpy as np
 import google.generativeai as genai
@@ -29,17 +31,16 @@ _EMBEDDINGS = None
 _EMBED_CACHE = {}
 
 class GeminiEmbeddings:
-    def __init__(self, model: str = "models/text-embedding-004"):
-        self.model = model
+    def __init__(self, model: str = None):
+        self.model = model or get_embedding_model()
 
     def _embed(self, text: str) -> np.ndarray:
         if text in _EMBED_CACHE:
             return _EMBED_CACHE[text]
         import time
         t0 = time.time()
-        res = genai.embed_content(model=self.model, content=text)
+        emb = embed_text(text, model=self.model)
         print(f">>> Embedded 1 text in {time.time()-t0:.2f}s")
-        emb = np.array(res["embedding"], dtype=np.float32)
         _EMBED_CACHE[text] = emb
         return emb
 
@@ -147,27 +148,27 @@ def get_vector_store():
         try:
             _vector_store = FAISS.load_local(
                 "vector_index",
-                embedding_function=emb_obj.embed_query,
+                embeddings=emb_obj,
                 allow_dangerous_deserialization=True
             )
         except Exception:
             try:
                 _vector_store = FAISS.load_local(
                     "vector_index",
-                    embeddings=emb_obj,
+                    embedding=emb_obj,
                     allow_dangerous_deserialization=True
                 )
             except Exception:
                 _vector_store = FAISS.load_local(
                     "vector_index",
-                    embedding=emb_obj,
+                    embedding_function=emb_obj.embed_query,
                     allow_dangerous_deserialization=True
                 )
 
-        # Safety: ensure it's always callable
-        if not callable(getattr(_vector_store, "embedding_function", None)):
-            if getattr(emb_obj, "embed_query", None):
-                _vector_store.embedding_function = emb_obj.embed_query
+        # Safety: prefer Embeddings object to avoid deprecation warnings
+        embedding_fn = getattr(_vector_store, "embedding_function", None)
+        if not getattr(embedding_fn, "embed_query", None):
+            _vector_store.embedding_function = emb_obj
 
     return _vector_store
 
@@ -360,6 +361,57 @@ async def _fallback_regex_extraction(query: str, chat_history=None):
             search_query = query
     return search_query
 
+
+def _coerce_defect_data(defect_info):
+    if isinstance(defect_info, DefectData):
+        return defect_info
+    if isinstance(defect_info, dict):
+        categories = defect_info.get('categories') or []
+        counts = defect_info.get('counts') or []
+        if categories and counts:
+            total_defects = sum(counts)
+            frequencies = [count / total_defects for count in counts] if total_defects else []
+            return DefectData(
+                categories=categories,
+                counts=counts,
+                frequencies=frequencies,
+                total_defects=total_defects,
+                time_period=defect_info.get('time_period'),
+                source=defect_info.get('source', 'ai_extraction')
+            )
+    return None
+
+
+def _coerce_process_data(process_info):
+    if isinstance(process_info, ProcessData):
+        return process_info
+    if isinstance(process_info, dict):
+        measurements = process_info.get('measurements') or []
+        if measurements:
+            specifications = process_info.get('specifications', {}) or {}
+            return ProcessData(
+                measurements=measurements,
+                specifications=specifications,
+                sample_size=len(measurements),
+                process_name=process_info.get('process_name'),
+                source=process_info.get('source', 'ai_extraction')
+            )
+    return None
+
+
+def _coerce_cause_effect_data(cause_info):
+    if isinstance(cause_info, CauseEffectData):
+        return cause_info
+    if isinstance(cause_info, dict):
+        if cause_info.get('problem') or cause_info.get('main_categories'):
+            return CauseEffectData(
+                problem=cause_info.get('problem', 'Unspecified problem'),
+                main_categories=cause_info.get('main_categories', []),
+                sub_causes=cause_info.get('sub_causes', {}),
+                confidence=cause_info.get('confidence', 0.8)
+            )
+    return None
+
 async def generate_qc_tool(query: str, chat_history=None, custom_index=None, image=None, mode=None):
     """Generate actual QC tools based on user input"""
 
@@ -393,28 +445,14 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
         search_query = query
 
     query_lower = query.lower()  # Use original query for tool type detection
+    structured_data = extracted_data.get('data') if extracted_data and extracted_data.get('success') else None
 
     # PARETO CHART
     if "pareto" in query_lower or ("yes" in query_lower and "pareto" in query_lower) or ("a " in query_lower and "pareto" in query_lower) or ("please" in query_lower and "pareto" in query_lower):
         # Try AI-extracted data first
-        if extracted_data and extracted_data.get('success') and extracted_data.get('data', {}).get('defect_data'):
-            defect_info = extracted_data['data']['defect_data']
-            if defect_info.get('categories') and defect_info.get('counts'):
-                from data_extractor import DefectData
-                
-                categories = defect_info['categories']
-                counts = defect_info['counts']
-                total_defects = sum(counts)
-                frequencies = [count / total_defects for count in counts]
-
-                defect_data = DefectData(
-                    categories=categories,
-                    counts=counts,
-                    frequencies=frequencies,
-                    total_defects=total_defects,
-                    source="ai_extraction"
-                )
-
+        if structured_data and structured_data.get('defect_data'):
+            defect_data = _coerce_defect_data(structured_data.get('defect_data'))
+            if defect_data and defect_data.categories and defect_data.counts:
                 try:
                     result = dynamic_tool_generator.generate_tool("pareto_chart", defect_data)
                     return result, None
@@ -460,20 +498,9 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
     # CONTROL CHART
     elif "control chart" in query_lower or ("control" in query_lower and "chart" in query_lower):
         # Try AI-extracted data first
-        if extracted_data and extracted_data.get('process_data'):
-            process_info = extracted_data['process_data']
-            if process_info.get('measurements'):
-                from data_extractor import ProcessData
-                
-                measurements = process_info['measurements']
-                specifications = process_info.get('specifications', {})
-                
-                process_data = ProcessData(
-                    measurements=measurements,
-                    specifications=specifications,
-                    sample_size=len(measurements)
-                )
-
+        if structured_data and structured_data.get('process_data'):
+            process_data = _coerce_process_data(structured_data.get('process_data'))
+            if process_data and process_data.measurements:
                 try:
                     result = dynamic_tool_generator.generate_tool("control_chart", process_data)
                     return result, None
@@ -523,12 +550,9 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
     # HISTOGRAM
     elif "histogram" in query_lower or ("yes" in query_lower and "histogram" in query_lower) or ("a " in query_lower and "histogram" in query_lower) or ("please" in query_lower and "histogram" in query_lower):
         # Try AI-extracted data first
-        if extracted_data and extracted_data.get('success') and extracted_data.get('data', {}).get('process_data'):
-            process_info = extracted_data['data']['process_data']
-            if hasattr(process_info, 'measurements') and process_info.measurements:
-                # Use the ProcessData object directly
-                process_data = process_info
-
+        if structured_data and structured_data.get('process_data'):
+            process_data = _coerce_process_data(structured_data.get('process_data'))
+            if process_data and process_data.measurements:
                 try:
                     result = dynamic_tool_generator.generate_tool("histogram", process_data)
                     return result, None
@@ -578,20 +602,9 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
     # PROCESS CAPABILITY
     elif "capability" in query_lower or "cp" in query_lower or "cpk" in query_lower or "cp/cpk" in query_lower:
         # Try AI-extracted data first
-        if extracted_data and extracted_data.get('process_data'):
-            process_info = extracted_data['process_data']
-            if process_info.get('measurements') and process_info.get('specifications'):
-                from data_extractor import ProcessData
-                
-                measurements = process_info['measurements']
-                specifications = process_info['specifications']
-                
-                process_data = ProcessData(
-                    measurements=measurements,
-                    specifications=specifications,
-                    sample_size=len(measurements)
-                )
-                
+        if structured_data and structured_data.get('process_data'):
+            process_data = _coerce_process_data(structured_data.get('process_data'))
+            if process_data and process_data.measurements and process_data.specifications:
                 try:
                     result = dynamic_tool_generator.generate_tool("capability_chart", process_data)
                     return result, None
@@ -671,18 +684,9 @@ async def generate_qc_tool(query: str, chat_history=None, custom_index=None, ima
     # FISHBONE DIAGRAM
     elif "fishbone" in query_lower or "root cause" in query_lower or ("cause" in query_lower and "diagram" in query_lower):
         # Try AI-extracted data first
-        if extracted_data and extracted_data.get('success') and extracted_data.get('data', {}).get('cause_effect_data'):
-            cause_info = extracted_data['data']['cause_effect_data']
-            if cause_info.get('main_categories') and cause_info.get('sub_causes'):
-                from data_extractor import CauseEffectData
-                
-                cause_data = CauseEffectData(
-                    problem=cause_info.get('problem', 'Quality problem'),
-                    main_categories=cause_info['main_categories'],
-                    sub_causes=cause_info['sub_causes'],
-                    confidence=0.9  # Higher confidence for AI extraction
-                )
-                
+        if structured_data and structured_data.get('cause_effect_data'):
+            cause_data = _coerce_cause_effect_data(structured_data.get('cause_effect_data'))
+            if cause_data and cause_data.main_categories and cause_data.sub_causes:
                 try:
                     result = dynamic_tool_generator.generate_tool("fishbone_diagram", cause_data)
                     return result, None

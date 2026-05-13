@@ -32,22 +32,12 @@ def build_faiss_index():
 def load_index_with_fallback(emb_obj):
     """
     Try multiple load signatures and ensure that embedding_function is a callable.
-    Prefer to pass emb_obj.embed_query as embedding_function so internal code
-    calls a function (avoids 'object is not callable').
+    Prefer to pass the embeddings object for newer APIs, then fall back to
+    older keywords or a callable when required.
     """
     emb_callable = getattr(emb_obj, "embed_query", None)
 
-    # Try preferred approach: give callable
-    try:
-        return FAISS.load_local(
-            INDEX_DIR,
-            embedding_function=emb_callable,
-            allow_dangerous_deserialization=True
-        )
-    except Exception:
-        pass
-
-    # Next, try passing the object under 'embeddings' (newer APIs)
+    # Prefer passing the embeddings object (newer APIs)
     try:
         return FAISS.load_local(
             INDEX_DIR,
@@ -57,11 +47,21 @@ def load_index_with_fallback(emb_obj):
     except Exception:
         pass
 
-    # Fallback: try 'embedding' keyword (older APIs)
+    # Next, try 'embedding' keyword (older APIs)
     try:
         return FAISS.load_local(
             INDEX_DIR,
             embedding=emb_obj,
+            allow_dangerous_deserialization=True
+        )
+    except Exception:
+        pass
+
+    # Fallback: pass a callable (deprecated but still supported)
+    try:
+        return FAISS.load_local(
+            INDEX_DIR,
+            embedding_function=emb_callable,
             allow_dangerous_deserialization=True
         )
     except Exception as e:
