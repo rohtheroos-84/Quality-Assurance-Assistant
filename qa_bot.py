@@ -1,5 +1,6 @@
 import google.generativeai as genai
 from langchain_community.vectorstores import FAISS
+from langchain_core.embeddings import Embeddings
 import os
 #from dotenv import load_dotenv
 from tool_recommender import check_for_tool, check_for_tool_generation, enhanced_tool_lookup
@@ -30,7 +31,7 @@ model = genai.GenerativeModel("gemini-2.5-flash-lite")
 _EMBEDDINGS = None
 _EMBED_CACHE = {}
 
-class GeminiEmbeddings:
+class GeminiEmbeddings(Embeddings):
     def __init__(self, model: str = None):
         self.model = model or get_embedding_model()
 
