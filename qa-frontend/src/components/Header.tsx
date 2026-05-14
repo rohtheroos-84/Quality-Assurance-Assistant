@@ -35,16 +35,32 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
       <div className="px-6 py-4">
         <div className="flex items-center justify-between">
           {/* Mobile menu button */}
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={onMenuClick}
-            className="lg:hidden w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg"
-          >
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </motion.button>
+          <div className="lg:hidden flex items-center space-x-3">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={onMenuClick}
+              className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg"
+            >
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </motion.button>
+            <div>
+              <h1
+                style={{ color: colors.text }}
+                className="text-base font-bold font-['Poppins']"
+              >
+                QA Assistant
+              </h1>
+              <p
+                style={{ color: colors.secondary }}
+                className="text-xs"
+              >
+                Quality Tools
+              </p>
+            </div>
+          </div>
 
           {/* Desktop logo */}
           <div className="hidden lg:flex items-center space-x-3">
