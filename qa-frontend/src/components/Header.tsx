@@ -9,7 +9,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
-  const { mode, toggleMode, persona, colors } = useTheme();
+  const { mode, toggleMode, colors } = useTheme();
   const isDark = mode === 'dark';
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 

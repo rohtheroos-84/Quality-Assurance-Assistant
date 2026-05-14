@@ -241,6 +241,7 @@ const ParticlesOGL: React.FC<ParticlesProps> = ({
     alphaParticles,
     particleBaseSize,
     sizeRandomness,
+    particleColors,
     cameraDistance,
     disableRotation
   ]);
