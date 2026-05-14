@@ -1,8 +1,7 @@
 import React, { useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useDropzone } from 'react-dropzone';
 import { chatAPI } from '../services/api';
-import { AnimatedBackground } from './AnimatedBackground';
 
 interface FileUploadProps {
   uploadedFiles: any[];
@@ -13,8 +12,6 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   uploadedFiles,
   onFilesChange
 }) => {
-  // Particle configuration for drag effects
-  const [particleSystem, setParticleSystem] = React.useState(null);
   const [isHovered, setIsHovered] = React.useState(false);
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const uploadPromises = acceptedFiles.map(async (file) => {

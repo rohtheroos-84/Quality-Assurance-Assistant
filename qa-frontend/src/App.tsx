@@ -10,7 +10,7 @@ import { BackgroundParticles } from './components/ui/BackgroundParticles';
 import { useTheme } from './context/ThemeContext';
 
 export default function App() {
-  const { colors, mode } = useTheme();
+  const { colors } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     // Initialize sidebar as open on desktop, closed on mobile
     return window.innerWidth >= 1024;
